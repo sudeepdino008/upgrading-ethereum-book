@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 320" font-family="'Gloria Hallelujah', cursive">
+  <defs>
+    <style>@import url('https://fonts.googleapis.com/css2?family=Gloria+Hallelujah:wght@400;500');
+      text { font-family: 'Gloria Hallelujah', cursive; }
+    </style>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,3 L0,6 z" fill="black"/>
+    </marker>
+  </defs>
+
+  <!-- finalised prefix blocks -->
+  <rect x="20"  y="130" width="60" height="50" rx="8" fill="none" stroke="black" stroke-width="2"/>
+  <rect x="110" y="130" width="60" height="50" rx="8" fill="none" stroke="black" stroke-width="2"/>
+  <rect x="200" y="130" width="60" height="50" rx="8" fill="none" stroke="black" stroke-width="2"/>
+
+  <!-- finalised checkpoint (square) -->
+  <rect x="290" y="125" width="60" height="60" fill="none" stroke="black" stroke-width="2"/>
+
+  <!-- available head blocks (after checkpoint), with a fork -->
+  <rect x="400" y="130" width="60" height="50" rx="8" fill="none" stroke="black" stroke-width="2"/>
+  <rect x="500" y="70"  width="60" height="50" rx="8" fill="none" stroke="black" stroke-width="2"/>
+  <rect x="600" y="70"  width="60" height="50" rx="8" fill="none" stroke="black" stroke-width="2"/>
+  <rect x="500" y="190" width="60" height="50" rx="8" fill="none" stroke="black" stroke-width="2"/>
+
+  <!-- parent arrows (child -> parent) -->
+  <line x1="110" y1="155" x2="80"  y2="155" stroke="black" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="200" y1="155" x2="170" y2="155" stroke="black" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="290" y1="155" x2="260" y2="155" stroke="black" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="400" y1="155" x2="350" y2="155" stroke="black" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="500" y1="95"  x2="460" y2="148" stroke="black" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="600" y1="95"  x2="560" y2="95"  stroke="black" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="500" y1="215" x2="460" y2="162" stroke="black" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- finalised boundary dashed line -->
+  <line x1="375" y1="40" x2="375" y2="280" stroke="black" stroke-width="2" stroke-dasharray="6,6"/>
+
+  <!-- labels -->
+  <text x="30"  y="40" font-size="15">finalised prefix</text>
+  <text x="40"  y="60" font-size="13">(never reverts)</text>
+  <text x="470" y="40" font-size="15">available head</text>
+  <text x="470" y="285" font-size="13">(ebbs and flows)</text>
+  <text x="245" y="212" font-size="12">finalised</text>
+  <text x="243" y="228" font-size="12">checkpoint</text>
+</svg>

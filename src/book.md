@@ -1873,53 +1873,179 @@ One of the better articles I've found on Casper FFG is by [Juin Chiu](https://me
 
 Some formal verification work on the guarantees of Casper FFG (as presented in the original paper, that is, without $k$-finality, for example) is described in the [Verification of Casper in the Coq Proof Assistant](https://core.ac.uk/download/pdf/161954227.pdf) (2018) paper. It contains some useful insights that clarify the assumptions behind the plausible liveness proof, in particular.
 
-### Gasper <!-- /part2/consensus/gasper/* -->
+### Gasper <!-- /part2/consensus/gasper/ -->
 
-TODO
+We've now looked at our two consensus protocols in isolation. [LMD GHOST](/part2/consensus/lmd_ghost/) is a fork choice rule that keeps the chain growing block by block, but offers no finality and is happy to fork. [Casper FFG](/part2/consensus/casper_ffg/) is a finality gadget that confers finality on a chain, but says almost nothing about how that chain is built in the first place. The job of this section is to bolt them together into the single protocol that Ethereum actually runs. The combination is called Gasper.
+
+The high-level picture was sketched in the [overview](/part2/consensus/overview/#the-ghosts-in-the-machine): Casper FFG is an overlay that prunes the block tree produced by LMD GHOST, and LMD GHOST keeps things moving when Casper FFG can't finalise. Here we go one level deeper and look at the joins.
+
+The first thing to settle is how Casper FFG's checkpoints map onto the beacon chain. The [Casper FFG paper](https://arxiv.org/pdf/1710.09437.pdf) works with an abstract notion of "checkpoint height" and assumes that every height has a block. The beacon chain doesn't oblige: slots can be empty, blocks can be missed. So Gasper ties a checkpoint to a _slot_ rather than to a block height. As we saw [earlier](/part2/consensus/casper_ffg/#epochs-and-checkpoints), the checkpoint for epoch $N$ lives at slot $32N$, the first slot of the epoch &ndash; an epoch boundary. But what if that slot is empty?
+
+The answer is to take the most recent block at or before the boundary. If slot $32N$ has a block, that block is the checkpoint. If it's empty, we walk backwards through the empty slots until we find a block, and that block stands in as the checkpoint. So a single block can serve as the checkpoint for several consecutive epochs if there's a long run of empty slots over an epoch boundary. The [`Checkpoint`](/part3/containers/dependencies/#checkpoint) object captures exactly this: an epoch number together with the root of the block that represents it.
+
+The second join is the attestation. We don't ask validators to send a separate LMD GHOST vote and a separate Casper FFG vote &ndash; that would double the message load for no benefit. Instead, each validator casts a single attestation per epoch that carries both. Recall the [`AttestationData`](/part3/containers/dependencies/#attestationdata): the `beacon_block_root` field is the LMD GHOST head vote, while the `source` and `target` fields are the Casper FFG link. One message, two consensus protocols.
+
+There's a subtlety here that the Casper FFG section [promised](/part2/consensus/casper_ffg/#sources-and-targets-links-and-conflicts) to return to. The three votes within an attestation have to tell a single, consistent story about one branch of the tree. The target must be the checkpoint of the current epoch as computed from the very `beacon_block_root` the validator is attesting to, and the source must be that same chain's latest justified checkpoint. A validator can't mix and match &ndash; voting for one chain's head while citing another chain's justified checkpoint as its source. We'll look at the timeliness criteria that enforce this in the [Issues and Fixes](/part2/consensus/issues/) section.
+
+The third join is the fork choice itself. Pure LMD GHOST starts its walk from genesis and follows the heaviest subtree all the way to the head. Gasper modifies this: the walk starts not from genesis but from the latest justified checkpoint, and any branch that doesn't descend from that checkpoint is excluded before the weights are even counted. This is what enforces Casper FFG's [fork choice rule](/part2/consensus/casper_ffg/#fork-choice-rule) &ndash; that we must build on the chain with the highest justified checkpoint &ndash; and it's what underpins Casper FFG's [plausible liveness](/part2/consensus/casper_ffg/#plausible-liveness). In the spec this lives in [`get_head()`](/part3/forkchoice/phase0/#get_head), which delegates the pruning to [`get_filtered_block_tree()`](/part3/forkchoice/phase0/#get_filtered_block_tree) before running the GHOST weight calculation. The combined arrangement is called [Hybrid LMD GHOST](/part3/forkchoice/phase0/#hybrid-lmd-ghost).
+
+Gasper was written up by Vitalik Buterin and others in the 2020 paper ["Combining GHOST and Casper"](https://arxiv.org/abs/2003.03052) (arXiv:2003.03052), and that paper is the right place to go for the formal treatment. But I should flag a recurring theme straight away: the protocol described in the paper is an idealised one, and the protocol Ethereum actually runs differs from it in several places. The deployed fork choice has accumulated a series of patches &ndash; proposer boost, unrealised justification handling, and others &ndash; that aren't in the paper, and that exist precisely because the naive combination turned out to have exploitable weaknesses. We'll work through those in the [Issues and Fixes](/part2/consensus/issues/) section. For now it's enough to know that "Gasper" names a family: the clean idea in the paper, and the somewhat barnacled implementation that we live with in practice.
 
 #### Safety and liveness in Gasper
 
-TODO
+What does bolting the two protocols together actually buy us? The hope is to inherit the best property of each.
+
+From Casper FFG we get **accountable safety** for finalised checkpoints. As we saw in [the guarantees of Casper FFG](/part2/consensus/casper_ffg/#the-guarantees-of-casper-ffg), once a checkpoint is finalised it will never be reverted unless at least one-third of the staked Ether is burned through slashing. This is a strong, economically backed safety guarantee, and it holds even when more than one-third of validators are adversarial &ndash; the price of breaking it is simply that we can identify and punish the culprits.
+
+From LMD GHOST we get **dynamic availability**. The chain keeps growing slot by slot even when participation is poor &ndash; even if large numbers of validators are offline or the network is partitioned, the validators that remain can keep producing and building on blocks. There's no quorum that has to assemble before the chain can advance; LMD GHOST will always name _some_ head and let honest validators build on it.
+
+The trouble is that you can't just staple two protocols together and assume the combination inherits the union of their properties. It doesn't. This is not a matter of implementation sloppiness; it's a genuine, fundamental tension, and it has a name.
+
+The tension is the **availability&ndash;finality dilemma**, formalised by Joachim Neu, Ertem Nusret Tas, and David Tse in ["Ebb-and-Flow Protocols"](https://arxiv.org/abs/2009.04987) (arXiv:2009.04987). Their result is a CAP-theorem-style impossibility for blockchains: no single protocol can be both safe across a network partition and live under fully dynamic participation. The intuition is short. A dynamically available protocol must keep advancing on whatever fraction of validators it can currently hear from, because it has no way to distinguish "validators are offline" from "validators are on the other side of a partition". But a safe protocol must refuse to advance when it might be partitioned, precisely so that the two sides don't finalise conflicting things. One protocol can't honour both demands at the same moment, so something has to give.
+
+The same authors, together with several Ethereum researchers, then showed that the naive way of combining GHOST and Casper FFG is not merely theoretically awkward but practically attackable. In ["Three Attacks on Proof-of-Stake Ethereum"](https://arxiv.org/abs/2110.10086) (arXiv:2110.10086) they describe an adversary, controlling only a small fraction of stake and with no control over the network, who can use carefully timed message release and short reorgs to stall finality and to drive longer-range reorganisations of the chain. These attacks are exactly what the fork-choice patches we'll meet in [Issues and Fixes](/part2/consensus/issues/) were designed to defend against.
+
+So if the impossibility result is real, how does Ethereum dodge it? It doesn't &ndash; it embraces it. Rather than trying to build one protocol that is both safe and available, Ethereum runs two _nested_ protocols and lets each have the property it can actually deliver. LMD GHOST provides an available chain that never stalls; Casper FFG provides a finalised prefix of that chain that never reverts. When the network is healthy the two stay close together. When the network partitions or participation collapses, finality simply pauses &ndash; the finalised prefix stops advancing &ndash; while the available chain keeps growing on each side. This is the deliberate choice [previously discussed](/part2/consensus/preliminaries/#ethereum-prioritises-liveness): Ethereum prioritises liveness, and accepts that under bad conditions it gives up finality rather than giving up the chain. The impossibility result tells us we must choose; the nested design lets different users make that choice for themselves, as we'll see next.
 
 ##### Heads and tails
 
-TODO
+In the [Preliminaries](/part2/consensus/preliminaries/#see-also) we pointed at Joachim Neu's talk, [The Why and How of PoS Ethereum's Consensus Problem](https://www.youtube.com/watch?v=2nMS-TK_tMw), and promised to "pick up again on the idea of nested ledgers" once we reached Gasper. Here we are.
+
+The picture is exactly the ebb-and-flow picture of the ["Ebb-and-Flow" paper](https://arxiv.org/abs/2009.04987). At any moment, Gasper offers us not one chain but two views of the same chain:
+
+  - The **available ledger** is what LMD GHOST gives us at the head. It always advances, slot by slot, regardless of how good or bad participation is. It is the longer of the two, and it is the chain that block producers and attesters follow when they do their jobs.
+  - The **finalised ledger** is the prefix that Casper FFG has blessed with finality. It trails some distance behind the head &ndash; usually a couple of epochs, sometimes much further if finality has stalled.
+
+The crucial relationship between them is that the finalised ledger is always a _prefix_ of the available ledger, and it grows monotonically. It never reverts: once a checkpoint is finalised, every block up to it is fixed forever (barring the one-third slashing that accountable safety guards against). The head, by contrast, is allowed to ebb and flow &ndash; it can reorg, it can fork, it can move sideways &ndash; precisely because it carries no finality guarantee and is free to do whatever keeps the chain live.
+
+<a id="img_consensus_gasper_nested_ledgers"></a>
+<figure class="diagram" style="width: 95%">
+
+![Diagram showing the finalised prefix as a solid run of blocks followed by the available head section, which forks. The finalised prefix is a sub-section of the available chain.](images/diagrams/consensus-gasper-nested-ledgers.svg)
+
+<figcaption>
+
+The two nested ledgers. The finalised prefix (left) is a sub-chain of the available ledger and never reverts. The available head section (right) keeps growing under LMD GHOST and may fork or reorg &ndash; it ebbs and flows. The dashed line marks the latest finalised checkpoint; everything to its left is settled.
+
+</figcaption>
+</figure>
+
+Why expose two ledgers rather than one? Because the [availability&ndash;finality dilemma](#safety-and-liveness-in-gasper) means no single ledger can satisfy everyone, and different users genuinely want different things.
+
+A centralised exchange crediting a large deposit cares about safety above all. A reversion would cost it real money, so it waits for finality &ndash; it reads the finalised ledger, accepts a delay of a few minutes, and in exchange gets a settlement guarantee it can build a business on. A block producer, on the other hand, cannot afford to wait: if it built on a two-epoch-old finalised block it would orphan its own proposal and waste its slot. It must follow the head, the available ledger, and take its chances with the small probability of a short reorg. Most ordinary users sit somewhere in between, treating a handful of confirmations as good enough for everyday purposes.
+
+So the head and the tail of the chain serve different masters. The tail &ndash; the finalised prefix &ndash; is for those who need certainty and can wait for it. The head &ndash; the available ledger &ndash; is for those who need the chain to keep moving and can tolerate a little churn. Gasper's job is to keep the tail growing steadily underneath a head that is always pushing forward, and to keep the gap between them small whenever the network lets it.
 
 ### Issues and Fixes <!-- /part2/consensus/issues/ -->
 
 #### LMD GHOST
 
-<!-- [RLMD GHOST paper](https://arxiv.org/pdf/2302.11326.pdf). -->
+The version of LMD GHOST we built up in the [LMD GHOST](/part2/consensus/lmd_ghost/) chapter is the pure, textbook form of the algorithm: weigh each branch by the latest votes of the validators, and recursively follow the heaviest subtree. It is elegant, and it captures the essential idea. Unfortunately, deployed as-is on a live network with a partly adversarial set of validators and an unreliable network, it turns out to have a number of exploitable weaknesses.
 
-TODO
+Almost all of these weaknesses are variants of the same trick, the *balancing attack*. The idea is that an adversary controlling only a small fraction of the stake keeps two competing branches in near-perfect equipoise, so that honest validators &ndash; who see slightly different sets of votes depending on network timing &ndash; split roughly evenly between the two. Neither branch ever accumulates the supermajority needed for [Casper FFG](/part2/consensus/casper_ffg/) to finalise, and so finality stalls. It is a liveness failure rather than a safety failure, but a serious one.
+
+The first balancing attack on Gasper was published just before mainnet genesis, in the Ethresear.ch post [A Balancing Attack on Gasper](https://ethresear.ch/t/a-balancing-attack-on-gasper-the-current-candidate-for-eth2s-beacon-chain/8079?u=benjaminion) and the accompanying paper ["Ebb-and-Flow Protocols"](https://arxiv.org/abs/2009.04987) by Neu, Tas and Tse. It was later sharpened considerably in [Three Attacks on Proof-of-Stake Ethereum](https://arxiv.org/abs/2110.10086) (Schwarz-Schilling, Neu, Monnot, Asgaonkar, Tas and Tse), which combines short-range reorgs with adversarial network delay to relax the assumptions on adversarial stake and timing. A further [equivocation-based variant](https://ethresear.ch/t/balancing-attack-lmd-edition/11853?u=benjaminion) followed in early 2022.
+
+The fixes we'll look at in this section &ndash; the attestation consideration delay, attestation recency, equivocation discounting, and proposer boost &ndash; are best understood as a sequence of point patches to the deployed fork choice as each new weakness came to light. They are not a ground-up redesign. The research literature does contain more principled redesigns, such as [RLMD GHOST](https://arxiv.org/pdf/2302.11326.pdf) (recent latest-message-driven GHOST, by D'Amato and Zanolini), which expires stale votes to recover dynamic availability, and the various [view-merge](/part3/forkchoice/phase0/#alternatives-to-proposer-boost) proposals that aim to deny the adversary its split-view lever altogether. But what actually runs on mainnet today is the patched fork choice, with each patch documented in [the Annotated Fork Choice](/part3/forkchoice/phase0/). We'll go through the patches one at a time.
 
 ##### Attestation consideration delay
 
-TODO <!-- 1 slot delay in consideration -->
+The first and simplest of the anti-balancing patches is to refuse to look at an attestation until the slot in which it was made is firmly in the past. An attestation created in slot $N$ is not allowed to influence a node's fork choice until slot $N+1$ has begun. The check lives in [`validate_on_attestation()`](/part3/forkchoice/phase0/#validate_on_attestation), and the relevant assertion is delightfully terse:
+
+$$\mathtt{get\_current\_slot(store)} \geq \mathtt{attestation.data.slot} + 1$$
+
+We discuss it in detail under [Only future slots](/part3/forkchoice/phase0/#only-future-slots) in the annotated spec.
+
+Why bother? The balancing attack's whole lever is timing. If attestations counted towards the fork choice the instant they arrived, an adversary with a handful of validators and fine-grained control over message delivery could probe the network part-way through a slot, see roughly how the honest votes were leaning on each of two competing branches, and then release its own carefully targeted votes to keep the two branches in balance. Because honest validators run their fork choice at slightly different moments and over slightly different sets of received messages, they would each see a slightly different picture and split their votes between the two heads. The adversary need only top up whichever branch is falling behind. Nudging a near-tie is cheap; that is what makes the attack feasible with so little stake.
+
+Deferring consideration by a full slot pulls this lever out of the adversary's hands. By the time honest validators in slot $N+1$ run their fork choice, they are all weighing the *same* settled set of votes &ndash; those made in slot $N$ and earlier &ndash; rather than a live, half-delivered stream of votes from the current slot. Anything the adversary learns or releases during slot $N$ cannot affect the fork choice until slot $N+1$, by which point its information is stale. This is precisely the condition stated in section 8.4 of the [Gasper paper](https://arxiv.org/abs/2003.03052): at slot $N$, only attestations from slots up to and including $N-1$ may be in the Store.
 
 ##### Attestation recency
 
-TODO. See the [Annotated Fork Choice](/part3/forkchoice/phase0/#attestation-timeliness).
+The LMD GHOST fork choice is, by its very name, driven by the _latest_ message from each validator. But how recent does a message need to be before we are willing to act on it? The naïve answer is that any attestation we have not yet seen is fair game, however old the slot it was cast in. That turns out to be dangerous, and the rule we settled on is a tighter one: when an attestation arrives over gossip, we consider it for the fork choice only if its target checkpoint belongs to the current or the previous epoch. Anything staler is simply ignored. This is the timeliness check performed by [`validate_on_attestation()`](/part3/forkchoice/phase0/#attestation-timeliness), and we walk through the mechanics in detail in the Annotated Fork Choice.
+
+The reason the rule exists is an attack identified in August 2019 and christened the [decoy flip-flop attack](https://ethresear.ch/t/decoy-flip-flop-attack-on-lmd-ghost/6001?u=benjaminion) on LMD GHOST. The setting is a network that has, through some failure or period of asynchrony, ended up with two competing branches of roughly equal weight. An adversary controlling some fraction of the stake &ndash; importantly, less than the $\frac{1}{3}$ needed to break finality outright &ndash; does not vote honestly during these contested periods. Instead it quietly saves up its attestations, hoarding votes for one branch and then the other.
+
+Later, the adversary releases these stockpiled votes at carefully chosen moments. Because the fork choice was willing to count any latest message, a batch of old votes for the lagging branch could be dropped in at just the right instant to make it the heavier one, flipping the honest validators across to follow it. Then a different batch flips them back. The honest majority is herded between the two branches like sheep, and neither branch is ever allowed to accumulate the two-thirds weight that Casper FFG needs to justify and finalise a checkpoint. The adversary can keep this up only for as long as its hoard of saved votes lasts &ndash; the supply of decoy votes is finite.
+
+The fix, added in [consensus-specs PR #1466](https://github.com/ethereum/consensus-specs/pull/1466), is pleasingly direct: bound how old a usable attestation can be. If only attestations whose target is the current or previous epoch count towards the fork choice, then a stockpile of votes from epochs gone by is worthless. The adversary can no longer save up ammunition, because the ammunition expires before it can be fired. There is a subtlety worth flagging: this expiry applies to when we _first hear_ a message, not to the message we retain. Once a validator's latest message is in the Store it stays there, however old it eventually becomes &ndash; we still genuinely use the _latest_ message. The result is a curious hybrid that the PR author described as "FMD GHOST" (fresh message driven), sitting somewhere between fresh-message and latest-message behaviour, which we explore further in [Part 3](/part3/forkchoice/phase0/#attestation-timeliness).
 
 ##### Attestation equivocation
 
-TODO. See the [Annotated Fork Choice](/part3/forkchoice/phase0/#on_attester_slashing).
+Proposer boost, which we will come to shortly, defends against one family of balancing attacks. But it does not close every door. A refined balancing attack &ndash; the so-called [equivocation balancing attack](https://ethresear.ch/t/balancing-attack-lmd-edition/11853?u=benjaminion), set out more formally by Neu, Tas and Tse in [Two Attacks on Proof-of-Stake GHOST/Ethereum](https://arxiv.org/abs/2203.01315) &ndash; works by having the adversary's validators _equivocate_. Each adversarial validator casts not one attestation per epoch but several conflicting ones, and the adversary releases different versions to different parts of the network. One half of the honest validators sees votes that tip the balance towards the left branch; the other half sees votes that tip it towards the right. With careful timing the adversary keeps the two honest views split, and neither branch ever reaches the supermajority needed to finalise.
+
+Now, equivocating like this is flatly illegal under the Casper FFG slashing rules: casting two different attestations for the same target is a slashable offence, and any validator caught doing it will eventually be slashed and ejected from the validator set. So why is this an attack at all? Because slashing bites only _after the fact_. The attestations have to be reported, included in a block, and processed by the state transition before the penalty lands, and in the meantime the fork choice &ndash; which reasons about the validator set as of the last justified checkpoint &ndash; happily keeps counting the equivocating validators' weight. The adversary can therefore keep the network split for as long as it cares to, paying the slashing cost only once the dust has settled.
+
+The remedy, [added in March 2022](https://github.com/ethereum/consensus-specs/pull/2845), is to teach the fork choice itself about equivocation rather than waiting for the heavy machinery of slashing to catch up. When the fork choice learns of an attester slashing &ndash; via the [`on_attester_slashing()`](/part3/forkchoice/phase0/#on_attester_slashing) handler, which receives slashing evidence from blocks or directly from peers &ndash; it records the offending validators in `store.equivocating_indices`. From that moment on those validators are cut out of the fork choice entirely: their latest messages are discarded, and they contribute no weight to any branch. They have lost their lever.
+
+I find the cost asymmetry here the most satisfying part of the design. Slashing makes the attack _expensive_: anyone who equivocates will, sooner or later, forfeit a chunk of stake and be shown the door. But expense alone does not help if the attacker is willing to pay. The fork-choice discount makes the attack _ineffective_: the instant the equivocation is proven, the equivocators stop being able to influence the head of the chain at all. The two defences work in concert &ndash; one removes the incentive, the other removes the capability &ndash; and it is the second that actually keeps the chain moving while the attack is underway. The mechanics of the handler, including why the ban turns out to be permanent in practice, are covered in the [Annotated Fork Choice](/part3/forkchoice/phase0/#on_attester_slashing).
 
 ##### Reorgs and Reversions
 
-TODO
+We met [reorgs](/part2/consensus/preliminaries/#reorgs-and-reversions) in the Preliminaries as a routine, blameless event: a node receives new blocks or votes, re-runs its fork choice, and finds that the head now sits on a different branch. Most reorgs are of exactly this benign kind, caused by network latency or two proposers briefly disagreeing about the head.
+
+Here we are interested in something more sinister: *deliberate* reorgs, in which a proposer or a small coalition of validators sets out to orphan an honest block that they could perfectly well have built upon. The motive is usually economic. By displacing someone else's block, an attacker can capture the [MEV](https://ethereum.org/en/developers/docs/mev/) and transaction fees that the victim would have collected, or it can censor particular transactions by repeatedly ejecting the blocks that include them.
+
+What makes this possible is that LMD GHOST chooses the head by *counting votes* &ndash; the latest messages of validators &ndash; and an attacker who controls some stake controls some of those votes. By choosing *when* to reveal its blocks and its attestations, rather than publishing them promptly as an honest validator would, even a small adversary can sometimes arrange for its own withheld weight to tip the fork choice against an honest block. These are timing games, and they exploit the gap between when information is created and when the rest of the network gets to count it.
+
+The canonical taxonomy comes from the 2021 paper [*Three Attacks on Proof-of-Stake Ethereum*](https://arxiv.org/abs/2110.10086) by Schwarz-Schilling, Neu, Monnot, Asgaonkar, Tas, and Tse. It distinguishes two flavours of short-range reorg according to *when* the attacker commits to the attack:
+
+  - **Ex ante** reorgs are planned *before* the victim block exists. The attacker decides in advance to orphan whatever honest block comes next, and prepares its ammunition ahead of time.
+  - **Ex post** reorgs react to a block that has *already* been published. The attacker sees the honest block on the wire and only then tries to displace it.
+
+We'll take them in turn.
 
 ###### Ex ante reorgs
 
-TODO
+In an ex ante reorg the attacker commits to the attack *in advance*: it knows that it will try to orphan the next honest block before that block has even been proposed. The classic illustration in [*Three Attacks on Proof-of-Stake Ethereum*](https://arxiv.org/abs/2110.10086) is the one-block reorg, and it works as follows.
+
+The adversary is the proposer for slot $n+1$. Instead of publishing its block honestly, it builds its block on the head and then *withholds* it. It also withholds the attestations of any colluding validators in slot $n+1$'s committee, who privately vote for the adversary's hidden block as head.
+
+Now slot $n+2$ arrives, and its proposer is honest. The honest proposer has seen no block for slot $n+1$, so it builds its block on slot&nbsp;$n$'s block and publishes it promptly. At this exact moment the adversary releases everything it has been hoarding: its withheld slot-$n+1$ block *and* the withheld attestations supporting it. The honest committee of slot $n+2$ now runs its fork choice and sees two candidate branches &ndash; the honest block, with only its own freshly-cast votes, versus the adversary's branch, which already carries a stockpile of attestations. If the stockpile outweighs the honest block, the honest committee votes for the adversary's branch as head, and the honest block of slot $n+2$ is orphaned.
+
+<a id="img_consensus_issues_ex_ante_reorg"></a>
+<figure class="diagram" style="width: 95%">
+
+![Timeline of a one-block ex ante reorg: the adversary withholds its slot n+1 block and votes, lets the honest slot n+2 block be published on slot n, then releases the hoard to outweigh and orphan it.](images/diagrams/consensus-issues-ex-ante-reorg.svg)
+
+<figcaption>
+
+A one-block ex ante reorg. The adversary withholds block $n+1$ and its attestations (dashed), lets the honest proposer of slot $n+2$ build on block $n$, then releases the hoard so that its branch outweighs the honest block.
+
+</figcaption>
+</figure>
+
+The striking thing is how *little* stake this needs. Because LMD GHOST only counts the votes it has actually seen, the attacker doesn't need a majority, or even a large minority &ndash; it needs only enough withheld attestations to edge ahead of a single honest block that has had no time to accumulate votes of its own. A lone proposer with a handful of colluding attesters can manage it. With some control over network timing, or by spanning several consecutive slots, the attack extends to reorgs of more than one block.
+
+The deployed mitigation is [proposer boost](/part2/consensus/issues/#proposer-boost), which we discuss in its own section. The intuition is simple: the honest proposer of the slot following the victim is granted a large *temporary* weight on its own branch &ndash; worth a fraction of the slot's committee &ndash; for the duration of that slot. As long as the adversary's hoarded votes are smaller than the boost, the boost overwhelms them, the honest branch wins the fork choice, and the small adversary's stockpile is no longer enough to reorg the honest block.
 
 ###### Ex post reorgs
 
-TODO
+An ex post reorg is the mirror image. Rather than committing ahead of time, the attacker waits until an honest block has *already* been published, and only then decides to orphan it. The attacker proposes a competing block at the same height, building on the victim's parent rather than on the victim itself, and tries to make its sibling branch heavier in the fork choice. Its ammunition is, once again, withheld attestation weight that it can release to tip the balance &ndash; or, as we'll see, the proposer boost it receives as the proposer of a timely block.
+
+And here lies an awkward irony. Proposer boost was introduced to defend against ex ante reorgs and [balancing attacks](/part2/consensus/issues/#proposer-boost) &ndash; it empowers an honest proposer to impose its view and protect its block. But a *boost* is just a temporary lump of weight handed to whoever proposes a timely block, and an adversarial proposer is just as entitled to it as an honest one. A proposer armed with the boost can therefore use it to orphan a block that was published just before its slot, provided that block gathered only a few attestations &ndash; which is exactly the situation for a block [published late](/part3/forkchoice/phase0/#proposer-boost-and-late-blocks), well after the attestation deadline. The same boost that stops a small adversary from reorging an honest block also lets a proposer reorg a weakly-attested one.
+
+This double edge is why the boost cannot simply be set as large as we like, and it is the central trade-off behind the value of `PROPOSER_SCORE_BOOST`. It also turns out to have a constructive side: honest clients deliberately use the boost to discipline late proposers, reorging out a block that arrived after the attestation deadline. We pursue both the trade-off and the honest-reorg strategy in the [Proposer boost](/part2/consensus/issues/#proposer-boost) section.
 
 ##### Proposer boost
 
-TODO. See the [Annotated Fork Choice](/part3/forkchoice/phase0/#proposer-boost).
+In our discussion of [LMD GHOST](/part2/consensus/lmd_ghost/) we treated a block's weight as nothing more than the sum of the latest votes for it and its descendants. Real Ethereum is not quite so pure. When a block arrives _on time_ &ndash; within the first `SECONDS_PER_SLOT / INTERVALS_PER_SLOT` seconds of its slot, which is to say the first four seconds &ndash; the fork choice temporarily credits its branch with a chunk of extra weight. That extra weight is a fraction `PROPOSER_SCORE_BOOST` (currently 40%) of a single committee's worth of stake, and it lasts only until the end of the slot. This is _proposer boost_. For the full mechanical detail of how `on_block()` sets `store.proposer_boost_root` and how [`get_weight()`](/part3/forkchoice/phase0/#get_weight) consumes it, see the [Annotated Fork Choice](/part3/forkchoice/phase0/#proposer-boost).
+
+The first thing to understand is that proposer boost is a fork-choice-only artefact. Nothing on chain records it; it is not a vote, it does not earn a reward, and it leaves no trace in any state. It is simply a thumb that each node temporarily places on the scales when deciding what the head of the chain is.
+
+Why do we need it? The honest answer is that vanilla LMD GHOST gives a fresh proposal almost no weight of its own. A timely block enters the world with zero attestations behind it; it must wait for the current committee to vote before it carries any weight at all. That opens the door to the [balancing](https://ethresear.ch/t/a-balancing-attack-on-gasper-the-current-candidate-for-eth2s-beacon-chain/8079?u=benjaminion) and [ex ante reorg](/part2/consensus/issues/#ex-ante-reorgs) attacks described above, in which an adversary quietly stockpiles a small number of withheld attestations and releases them at just the right moment to outweigh an honest proposal. Under proof of work this was never an issue: a miner who found a block had already "spent" real work to produce it, so the block arrived carrying its own weight. Proof of stake has no such implicit cost, and proposer boost is our way of restoring something like it &ndash; it makes an honest, timely proposal _sticky_, and forces an adversary to control far more attestation weight before they can hope to reorg it.
+
+The idea was [first suggested by Vitalik](https://notes.ethereum.org/@vbuterin/lmd_ghost_mitigation), who floated a value of 25%, and was developed further in the October 2021 ethresear.ch post [Change fork choice rule to mitigate balancing and reorging attacks](https://ethresear.ch/t/change-fork-choice-rule-to-mitigate-balancing-and-reorging-attacks/11127?u=benjaminion). It was [merged into the spec](https://github.com/ethereum/consensus-specs/pull/2730) in November 2021 &ndash; the initial implementation actually used 70% &ndash; and clients shipped support during April and May 2022, ahead of the Merge. After more careful [analysis](https://notes.ethereum.org/@casparschwa/H1T0k7b85) the value settled first at 33% and then at the current 40%. The history, and the reasoning behind each change, is laid out in the annotated [`PROPOSER_SCORE_BOOST`](/part3/forkchoice/phase0/#proposer_score_boost) constant.
+
+Now for some honesty about the trade-offs, because proposer boost is a blunt instrument. It defends against ex ante reorgs, but it does so by handing each proposer a large temporary weight, which makes [ex post reorgs](/part2/consensus/issues/#ex-post-reorgs) _easier_: a boosted proposer can deliberately orphan a weakly-attested predecessor by building on its parent. It protects a block for one slot only. And it implicitly trusts proposers more than committees &ndash; an adversarial proposer receives exactly the same boost as an honest one. The clearest illustration of this double edge is "proposer boost reorging", where honestly-behaving clients use the boost to reorg out blocks that arrived late, on the principle that a block which is timely shouldn't expect to be reorged, but a late one might. We look at that strategy, and its limits, in [Proposer boost and late blocks](/part3/forkchoice/phase0/#proposer-boost-and-late-blocks).
+
+Finally, the numbers, because they are reassuringly modest. Take the total active stake to be $S$. There are 32 slots in an epoch, and the committees attesting in those slots are of roughly equal size, so one slot's committee commands about $\frac{S}{32}$ of the stake. The boost is `PROPOSER_SCORE_BOOST` percent of that:
+
+$$
+0.4 \times \frac{S}{32} = \frac{0.4}{32} \, S \approx 0.0125 \, S
+$$
+
+In other words, a timely proposer's branch is credited with about 1.25% of the total stake for the rest of its slot. That sounds small, and it is &ndash; but a single slot's committee is itself only about 3.1% of the stake, so the boost is worth roughly 40% of a full committee's vote. It is enough to overwhelm the small withheld stockpiles that the balancing and ex ante attacks rely on, while remaining small enough that it cannot, on its own, override the honest votes that accumulate behind a block that has been canonical for a slot or more.
 
 #### Casper FFG
 
@@ -1971,11 +2097,27 @@ This scenario would be very unlikely to occur on the Ethereum mainnet, principal
 
 #### Gasper
 
-TODO
+We have looked separately at issues with [LMD GHOST](#lmd-ghost) and with [Casper FFG](#casper-ffg). But Gasper is not simply the sum of these two protocols: it is the act of _bolting them together_ that has been the source of some of the most subtle problems we have had to deal with. The interface between LMD GHOST's fork choice and Casper FFG's justification machinery turns out to be a delicate place, and several bugs and attacks have made their home there over the years.
+
+The [long reorg on the Goerli testnet](#casper-ffgs-fork-choice-can-cause-long-reorgs) that we have just discussed is one such interaction issue: it was not a bug in anyone's code, but a consequence of Casper FFG's fork choice rule overriding LMD GHOST's, exactly as designed, with unfortunate results. The fault line there was the rule that the fork choice must follow the branch with the highest justified checkpoint.
+
+A more adversarial example was the "bouncing attack" on Casper FFG, [identified in September 2019](https://ethresear.ch/t/analysis-of-bouncing-attack-on-ffg/6113?u=benjaminion), in which an adversary causes the fork choice's justified checkpoint to bounce back and forth between two competing branches, delaying finalisation indefinitely. The [original fix](https://ethresear.ch/t/prevention-of-bouncing-attack-on-ffg/6114?u=benjaminion) only allowed the justified checkpoint to be updated during the early part of an epoch. That fix was eventually removed in the Capella upgrade, since it added a lot of complexity for an attack that is very hard to set up in practice; it remains documented, along with the annotated diagrams that illustrate the bouncing, in the [Bellatrix edition](/../bellatrix/part3/forkchoice/phase0/#the-bouncing-attack).
+
+The richest seam of these interface problems, however, concerns _unrealised justification_, which deserves a section of its own.
 
 ##### Unrealised Justification
 
-TODO. See the [Annotated Fork Choice](/part3/forkchoice/phase0/#unrealised-justification).
+To understand the next family of attacks, we need to understand a peculiar mismatch in timing between two things that ought to agree: the votes that physically exist in blocks, and the justification that the beacon state believes has been achieved.
+
+Here is the wrinkle. A beacon chain block contains Casper FFG votes (in the form of attestations), and these accumulate steadily as an epoch progresses. But the state transition only runs the justification and finalisation accounting &ndash; [`process_justification_and_finalization()`](/part3/transition/epoch/#def_process_justification_and_finalization) &ndash; at epoch boundaries. So there is a window, towards the end of an epoch, in which the chain has gathered more than enough votes to justify a checkpoint, yet no block's post-state reflects this. The justification has, in a real sense, already happened &ndash; the votes are sitting right there in the blocks &ndash; but it has not been _booked_. We call this **unrealised justification**.
+
+Why does this matter to the fork choice? Recall that the fork choice prunes branches that disagree with the Store about the justified checkpoint, in order to enforce Casper FFG's rule and to keep honest validators from being forced into slashable surround votes. The trouble is that, if we filter branches purely on their _realised_ justification &ndash; what their post-state happens to say right now &ndash; we punish a branch merely for the bookkeeping lag. The votes that justify a higher checkpoint exist; the branch just hasn't done its end-of-epoch sums yet. Worse, an adversary can exploit the gap in the other direction, arranging matters so that a branch's true (unrealised) justification differs from what the Store has recorded, and thereby tricking the filter into pruning out honest competitors. Both flavours of mischief turned up in the first half of 2022: an [unrealised justification reorg](https://notes.ethereum.org/@adiasg/unrealized-justification) that could fork out up to nine blocks at the end of an epoch, a deadlock variant that could force honest validators to make slashable attestations, and a [justification withholding attack](https://hackmd.io/o9tGPQL2Q4iH3Mg7Mma9wQ) that could reorg arbitrary numbers of blocks at the start of an epoch.
+
+The fix, introduced in the [Capella update to the fork choice](https://github.com/ethereum/consensus-specs/pull/3290), is to have the fork choice track unrealised justification explicitly, rather than relying only on what the states have realised. The Store gained an `unrealized_justified_checkpoint`, and a map of `unrealized_justifications` recording, for every block, the justified checkpoint that _would_ result if its epoch were processed immediately. This is what [`compute_pulled_up_tip()`](/part3/forkchoice/phase0/#compute_pulled_up_tip) computes: for each block it runs the end-of-epoch accounting on the block's post-state and stores the result.
+
+The evocative name &ndash; "pulling up the tip" &ndash; captures the idea nicely. When the fork choice asks whether a branch is a viable head, it does not only look at the branch as it stands; it asks what the branch's justification _would become_ if its tip were notionally lifted from its actual slot up to the first slot of the next epoch and the accounting were run there and then. A branch should not be discarded for a lag in its bookkeeping; equally, the Store should not be fooled by a branch that is quietly hiding justification it has in fact achieved. Tracking unrealised justification lets the fork choice see what is really there, rather than only what has been formally entered into the ledger.
+
+The full mechanics &ndash; including the reworked `filter_block_tree()` and a walk through both attack scenarios &ndash; are covered in detail in the [Annotated Fork Choice](/part3/forkchoice/phase0/#unrealised-justification). As an aside, all of this is independent of the [Casper FFG long reorg](#casper-ffgs-fork-choice-can-cause-long-reorgs) we saw above, which arose from genuinely realised justification differing between branches; the two are easy to confuse but are quite distinct.
 
 ### Weak Subjectivity <!-- /part2/validator/weak_subjectivity/* -->
 
