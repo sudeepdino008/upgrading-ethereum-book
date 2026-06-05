@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 230" font-family="'Gloria Hallelujah', cursive">
+  <defs>
+    <style>@import url('https://fonts.googleapis.com/css2?family=Gloria+Hallelujah:wght@400;500');</style>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L7,3 L0,6 z" fill="black"/>
+    </marker>
+  </defs>
+
+  <!-- timeline axis -->
+  <line x1="40" y1="150" x2="660" y2="150" stroke="black" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- interval ticks -->
+  <line x1="60" y1="143" x2="60" y2="157" stroke="black" stroke-width="2"/>
+  <line x1="260" y1="143" x2="260" y2="157" stroke="black" stroke-width="2"/>
+  <line x1="460" y1="143" x2="460" y2="157" stroke="black" stroke-width="2"/>
+  <line x1="640" y1="143" x2="640" y2="157" stroke="black" stroke-width="2"/>
+
+  <!-- tick labels -->
+  <text x="60" y="180" text-anchor="middle" font-size="15">0s</text>
+  <text x="260" y="180" text-anchor="middle" font-size="15">4s</text>
+  <text x="460" y="180" text-anchor="middle" font-size="15">8s</text>
+  <text x="640" y="180" text-anchor="middle" font-size="15">12s</text>
+
+  <!-- duty blocks -->
+  <rect x="22" y="60" width="120" height="40" rx="8" fill="none" stroke="black" stroke-width="2"/>
+  <text x="82" y="85" text-anchor="middle" font-size="14">propose</text>
+
+  <rect x="212" y="60" width="120" height="40" rx="8" fill="none" stroke="black" stroke-width="2"/>
+  <text x="272" y="85" text-anchor="middle" font-size="14">attest</text>
+
+  <rect x="412" y="60" width="120" height="40" rx="8" fill="none" stroke="black" stroke-width="2"/>
+  <text x="472" y="85" text-anchor="middle" font-size="14">aggregate</text>
+
+  <!-- connectors from blocks to axis -->
+  <line x1="60" y1="100" x2="60" y2="143" stroke="black" stroke-width="2"/>
+  <line x1="260" y1="100" x2="260" y2="143" stroke="black" stroke-width="2"/>
+  <line x1="460" y1="100" x2="460" y2="143" stroke="black" stroke-width="2"/>
+
+  <!-- next slot hand-off -->
+  <text x="560" y="45" text-anchor="middle" font-size="13">to next</text>
+  <text x="560" y="63" text-anchor="middle" font-size="13">proposer</text>
+  <line x1="500" y1="75" x2="645" y2="75" stroke="black" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- title -->
+  <text x="350" y="25" text-anchor="middle" font-size="16">one 12-second slot</text>
+</svg>
