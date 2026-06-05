@@ -1,0 +1,36 @@
+#!/bin/bash
+
+# Make an EPUB of the whole text, using pandoc.
+#
+# All being well, the generated EPUB will appear as book.epub in your current directory.
+
+if [ $# -eq 0 ]; then
+    echo "Usage: $0 filename.md"
+    exit 1
+fi
+
+name=$(basename "$1" .md)
+outdir=$(pwd)
+srcdir=$(cd -- "$(dirname "$1")" && pwd)
+
+cd "$srcdir" || exit 1
+
+# Git branch name, capitalised - used in the metadata
+git_branch=$(git branch --show-current 2>/dev/null || echo 'unknown')
+UE_GIT_BRANCH=$(echo "$git_branch" | awk '{print toupper(substr($0,1,1)) substr($0,2)}')
+export UE_GIT_BRANCH
+
+echo "Converting $srcdir/$name.md to $outdir/$name.epub with version $UE_GIT_BRANCH"
+
+pandoc "$name.md" \
+    --output "$outdir/$name.epub" \
+    --from markdown \
+    --to epub3 \
+    --toc \
+    --toc-depth 2 \
+    --mathml \
+    --resource-path "$srcdir" \
+    --metadata title:"Upgrading Ethereum - $UE_GIT_BRANCH Edition" \
+    --metadata author:'Ben Edgington' \
+    --metadata lang:en-GB \
+    --metadata rights:'CC BY-SA 4.0'

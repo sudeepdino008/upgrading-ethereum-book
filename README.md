@@ -154,6 +154,10 @@ Pre-requisites:
 
 There's an experimental pipeline for typesetting the whole text as a PDF book in _bin/pdf/_. See the [README](bin/pdf/README.md) there for instructions.
 
+## Whole book EPUB
+
+There's a pipeline for building the whole text as an EPUB in _bin/epub/_. Run `npm run epubit`, or see the [README](bin/epub/README.md) there for instructions. Only `pandoc` is required.
+
 ## Coffee
 
 Kind souls sometimes ask for a way to send me a cup of coffee or make a donation. My account info is below - donations are absolutely not expected or necessary, but are always very encouraging and gratefully received.

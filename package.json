@@ -20,6 +20,7 @@
     "spfix": "bin/util/update_spellings_list.sh",
     "gramm": "bin/util/check_grammar.sh src/book.md",
     "pdfit": "bin/pdf/make_pdf src/book.md",
+    "epubit": "bin/epub/make_epub src/book.md",
     "stats": "bin/util/stats.sh",
     "valid": "node --input-type=module -e 'import validateHtml from \"./bin/util/validate.js\"; validateHtml(\"dist/part2/building_blocks/ssz/index.html\")'"
   },
