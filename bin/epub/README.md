@@ -34,6 +34,6 @@ The output appears as _book.epub_ in your current directory.
 
 ## Notes
 
-  - The table of contents is built two levels deep (parts and chapters).
+  - The table of contents is built three levels deep (parts, chapters, and sections).
   - Maths is rendered as MathML, which is part of the EPUB3 standard. Reader support varies: Apple Books and Calibre handle it well; older Kindle devices may not. If you need a Kindle format, convert the EPUB with [Calibre](https://calibre-ebook.com/) (`ebook-convert book.epub book.azw3`).
   - Metadata (title, author, language, licence) is set from the script, with the edition taken from the current git branch name.
