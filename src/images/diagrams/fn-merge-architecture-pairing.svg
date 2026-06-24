@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 360" font-family="Gloria Hallelujah, cursive">
+<defs>
+<style>@import url('https://fonts.googleapis.com/css2?family=Gloria+Hallelujah:wght@400;500');text{font-family:'Gloria Hallelujah',cursive;}</style>
+<marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="black"/></marker>
+</defs>
+<rect x="40" y="110" width="260" height="160" rx="8" fill="none" stroke="black" stroke-width="2" stroke-dasharray="6 5"/>
+<text x="170" y="135" text-anchor="middle" font-size="15">One node</text>
+<rect x="65" y="155" width="100" height="90" rx="8" fill="none" stroke="black" stroke-width="2"/>
+<text x="115" y="195" text-anchor="middle" font-size="14">Consensus</text>
+<text x="115" y="215" text-anchor="middle" font-size="14">client</text>
+<rect x="185" y="155" width="100" height="90" rx="8" fill="none" stroke="black" stroke-width="2"/>
+<text x="235" y="195" text-anchor="middle" font-size="14">Execution</text>
+<text x="235" y="215" text-anchor="middle" font-size="14">client</text>
+<line x1="165" y1="200" x2="185" y2="200" stroke="black" stroke-width="2" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+<text x="175" y="285" text-anchor="middle" font-size="12">Engine API (JWT, :8551)</text>
+<rect x="480" y="40" width="180" height="70" rx="8" fill="none" stroke="black" stroke-width="2"/>
+<text x="570" y="70" text-anchor="middle" font-size="13">Other consensus</text>
+<text x="570" y="90" text-anchor="middle" font-size="13">clients</text>
+<rect x="480" y="260" width="180" height="70" rx="8" fill="none" stroke="black" stroke-width="2"/>
+<text x="570" y="290" text-anchor="middle" font-size="13">Other execution</text>
+<text x="570" y="310" text-anchor="middle" font-size="13">clients</text>
+<line x1="115" y1="155" x2="480" y2="75" stroke="black" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="235" y1="245" x2="480" y2="295" stroke="black" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="360" y="120" text-anchor="middle" font-size="11">consensus P2P</text>
+<text x="360" y="330" text-anchor="middle" font-size="11">devp2p</text>
+</svg>

@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 320" font-family="Gloria Hallelujah, cursive">
+  <defs>
+    <style>@import url('https://fonts.googleapis.com/css2?family=Gloria+Hallelujah:wght@400;500');
+      text { font-family: 'Gloria Hallelujah', cursive; font-size: 13px; }
+      .lbl { font-size: 12px; }
+      rect { fill: none; stroke: black; stroke-width: 2; }
+      line { stroke: black; stroke-width: 2; }
+      .dash { stroke-dasharray: 5 4; }
+    </style>
+    <marker id="arrow" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 z" fill="black"/>
+    </marker>
+  </defs>
+
+  <text x="120" y="28" text-anchor="middle" class="lbl">state N</text>
+  <text x="540" y="28" text-anchor="middle" class="lbl">state N+1</text>
+
+  <!-- root N -->
+  <rect x="90" y="40" width="60" height="34" rx="8"/>
+  <text x="120" y="62" text-anchor="middle">root</text>
+
+  <!-- root N+1 (new) -->
+  <rect x="510" y="40" width="60" height="34" rx="8"/>
+  <text x="540" y="62" text-anchor="middle">root'</text>
+
+  <!-- shared left subtree -->
+  <rect x="40" y="130" width="70" height="34" rx="8"/>
+  <text x="75" y="152" text-anchor="middle">L</text>
+
+  <!-- old right node -->
+  <rect x="180" y="130" width="70" height="34" rx="8"/>
+  <text x="215" y="152" text-anchor="middle">R</text>
+
+  <!-- new right node -->
+  <rect x="410" y="130" width="70" height="34" rx="8"/>
+  <text x="445" y="152" text-anchor="middle">R'</text>
+
+  <!-- shared leaves under L -->
+  <rect x="20" y="230" width="50" height="34" rx="8"/>
+  <rect x="85" y="230" width="50" height="34" rx="8"/>
+  <!-- leaves under R -->
+  <rect x="165" y="230" width="50" height="34" rx="8"/>
+  <rect x="230" y="230" width="50" height="34" rx="8"/>
+  <!-- changed leaf under R' -->
+  <rect x="455" y="230" width="50" height="34" rx="8"/>
+  <text x="480" y="252" text-anchor="middle" class="lbl">new</text>
+
+  <!-- edges root N -->
+  <line x1="105" y1="74" x2="80" y2="130" marker-end="url(#arrow)"/>
+  <line x1="135" y1="74" x2="210" y2="130" marker-end="url(#arrow)"/>
+  <!-- edges root N+1: reuse L, point to R' -->
+  <line x1="520" y1="74" x2="105" y2="130" class="dash" marker-end="url(#arrow)"/>
+  <line x1="555" y1="74" x2="450" y2="130" marker-end="url(#arrow)"/>
+
+  <!-- edges L to leaves -->
+  <line x1="65" y1="164" x2="50" y2="230" marker-end="url(#arrow)"/>
+  <line x1="85" y1="164" x2="105" y2="230" marker-end="url(#arrow)"/>
+  <!-- edges R to leaves -->
+  <line x1="205" y1="164" x2="190" y2="230" marker-end="url(#arrow)"/>
+  <line x1="225" y1="164" x2="240" y2="230" marker-end="url(#arrow)"/>
+  <!-- edges R' : reuse left leaf of R, new right leaf -->
+  <line x1="430" y1="164" x2="245" y2="230" class="dash" marker-end="url(#arrow)"/>
+  <line x1="460" y1="164" x2="480" y2="230" marker-end="url(#arrow)"/>
+
+  <text x="350" y="300" text-anchor="middle" class="lbl">dashed = shared (re-used) nodes; solid = newly allocated</text>
+</svg>

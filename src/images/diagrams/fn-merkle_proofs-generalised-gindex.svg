@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 320" font-family="Gloria Hallelujah, cursive">
+  <defs>
+    <style>@import url('https://fonts.googleapis.com/css2?family=Gloria+Hallelujah:wght@400;500');</style>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 z" fill="black"/>
+    </marker>
+  </defs>
+  <style>
+    .node { fill:none; stroke:black; stroke-width:2; }
+    .lbl { font-size:20px; fill:black; text-anchor:middle; }
+    .edge { stroke:black; stroke-width:2; fill:none; }
+  </style>
+
+  <!-- edges -->
+  <line class="edge" x1="350" y1="58" x2="190" y2="138" marker-end="url(#arrow)"/>
+  <line class="edge" x1="350" y1="58" x2="510" y2="138" marker-end="url(#arrow)"/>
+  <line class="edge" x1="170" y1="168" x2="90"  y2="248" marker-end="url(#arrow)"/>
+  <line class="edge" x1="210" y1="168" x2="290" y2="248" marker-end="url(#arrow)"/>
+  <line class="edge" x1="490" y1="168" x2="410" y2="248" marker-end="url(#arrow)"/>
+  <line class="edge" x1="530" y1="168" x2="610" y2="248" marker-end="url(#arrow)"/>
+
+  <!-- root -->
+  <rect class="node" x="320" y="20" width="60" height="38" rx="8"/>
+  <text class="lbl" x="350" y="45">1</text>
+
+  <!-- depth 1 -->
+  <rect class="node" x="160" y="130" width="60" height="38" rx="8"/>
+  <text class="lbl" x="190" y="155">2</text>
+  <rect class="node" x="480" y="130" width="60" height="38" rx="8"/>
+  <text class="lbl" x="510" y="155">3</text>
+
+  <!-- depth 2 -->
+  <rect class="node" x="60"  y="240" width="60" height="38" rx="8"/>
+  <text class="lbl" x="90"  y="265">4</text>
+  <rect class="node" x="260" y="240" width="60" height="38" rx="8"/>
+  <text class="lbl" x="290" y="265">5</text>
+  <rect class="node" x="380" y="240" width="60" height="38" rx="8"/>
+  <text class="lbl" x="410" y="265">6</text>
+  <rect class="node" x="580" y="240" width="60" height="38" rx="8"/>
+  <text class="lbl" x="610" y="265">7</text>
+</svg>
